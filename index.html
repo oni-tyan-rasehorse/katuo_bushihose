@@ -10,12 +10,8 @@
 <body>
 <div class="wrap">
   <div class="title-block">
-    <h1>🐴 アニマルズのお将棋トレーニング 🐘</h1>
+    <h1>アニマルズのお将棋トレーニング</h1>
     <p>競走馬をぶったおせ！！</p>
-    <div class="legend">
-      <span>🐴王</span><span>🐘角</span><span>🦅飛</span><span>🐻金</span>
-      <span>🐺銀</span><span>🦓桂</span><span>🦒香</span><span>🐣歩</span>
-    </div>
   </div>
 
   <div class="settings-bar">
@@ -55,6 +51,7 @@
         <span class="tag" id="tag-gote"></span>
       </div>
       <div class="mochigoma" id="mochi-gote"></div>
+      <div class="cm-dock" id="dock-gote"></div>
     </div>
 
     <div>
@@ -74,7 +71,26 @@
         <span class="tag" id="tag-sente"></span>
       </div>
       <div class="mochigoma" id="mochi-sente"></div>
+      <div class="cm-dock" id="dock-sente"></div>
     </div>
+  </div>
+</div>
+
+
+<!-- 形勢コメント（JSが持ち駒パネルの下に移動して表示する） -->
+<div class="cm-store" id="cmStore" style="display:none">
+  <div class="cm-block cm-boss" id="cmBoss">
+    <div class="cm-avatar" id="cmBossAvatar">🐴</div>
+    <div class="cm-bubble"><span class="cm-name" id="cmBossName"></span><span class="cm-text" id="cmBossText"></span></div>
+  </div>
+  <div class="cm-block cm-eval" id="cmEval">
+    <span class="cm-eval-title">形勢</span>
+    <span class="cm-eval-label" id="cmEvalLabel">互角</span>
+    <div class="cm-bar"><div class="cm-bar-fill" id="cmBarFill"></div></div>
+  </div>
+  <div class="cm-block cm-buddy" id="cmBuddy">
+    <div class="cm-avatar" id="cmBuddyAvatar">🦁</div>
+    <div class="cm-bubble"><span class="cm-name" id="cmBuddyName"></span><span class="cm-text" id="cmBuddyText"></span></div>
   </div>
 </div>
 
@@ -129,6 +145,82 @@
     <p class="boss-intro-name" id="bossIntroName"></p>
     <p class="boss-intro-sub">きみの相棒と勝負だ！</p>
     <button class="btn-fight" id="bossIntroStartBtn">⚔️ たたかう！</button>
+  </div>
+</div>
+
+<div class="setup-modal" id="setupModal">
+  <div class="setup-box">
+    <div class="setup-steps" id="setupSteps">
+      <span class="setup-dot active" data-step="1">1</span>
+      <span class="setup-line"></span>
+      <span class="setup-dot" data-step="2">2</span>
+      <span class="setup-line"></span>
+      <span class="setup-dot" data-step="3">3</span>
+    </div>
+
+    <section class="setup-page active" data-page="1">
+      <h2 class="setup-title">📖 将棋のルール</h2>
+      <p class="setup-sub">下にスクロールして、最後まで読んでね ▼</p>
+      <div class="setup-scroll">
+        <ol class="rule-list">
+          <li><b>9×9の盤</b>で、先手と後手が交互に1手ずつ指します。</li>
+          <li>駒を動かして相手の駒の上に止まると、その駒を<b>取れます</b>。取った駒は<b>持ち駒</b>になり、自分の番に好きな空きマスへ<b>打てます</b>。</li>
+          <li><b>相手の王を取ったら勝ち</b>です。王が狙われると「王手！」と出ます。</li>
+          <li>相手の陣地(いちばん奥の3段)に入る・出る・中で動くと、駒が<b>成れます</b>。</li>
+          <li>打てない場所：同じ筋に歩が2枚(二歩)、行き場のなくなる歩・香・桂。</li>
+        </ol>
+        <h3 class="rule-sub">駒の動き</h3>
+        <ul class="piece-list">
+          <li><span class="pname">王・玉</span>ライオン／馬。まわり8方向に1マス</li>
+          <li><span class="pname">金</span>クマ。前・左右・斜め前・後ろに1マス</li>
+          <li><span class="pname">銀</span>オオカミ。前と斜め4方向に1マス</li>
+          <li><span class="pname">桂</span>シマウマ。前に2マス進んで左右どちらかへジャンプ</li>
+          <li><span class="pname">香</span>キリン。前にまっすぐ何マスでも</li>
+          <li><span class="pname">角</span>お肉。斜めに何マスでも</li>
+          <li><span class="pname">飛</span>サカナ。たて・横に何マスでも</li>
+          <li><span class="pname">歩</span>草。前に1マス</li>
+        </ul>
+        <h3 class="rule-sub">成り</h3>
+        <ul class="piece-list">
+          <li>歩・香・桂・銀は成ると、<b>金と同じ動き</b>になります</li>
+          <li>角は成ると「王」の表示になり、斜め＋たて横1マス</li>
+          <li>飛は成ると「竜」になり、たて横＋斜め1マス</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="setup-page" data-page="2">
+      <h2 class="setup-title">⚔️ 対戦のしかた</h2>
+      <p class="setup-label">対戦相手</p>
+      <div class="choice-row" id="choiceMode">
+        <button type="button" class="choice-card" data-value="cpu"><span class="choice-icon">🐴</span><span>敵アニマル<small>ボスと一人で対戦</small></span></button>
+        <button type="button" class="choice-card" data-value="pvp"><span class="choice-icon">👥</span><span>2人で対戦<small>ふたりで交代して指す</small></span></button>
+      </div>
+      <div id="setupCpuOptions">
+        <p class="setup-label">あなたの手番</p>
+        <div class="choice-row small" id="choiceColor">
+          <button type="button" class="choice-pill" data-value="sente">先手</button>
+          <button type="button" class="choice-pill" data-value="gote">後手</button>
+        </div>
+        <p class="setup-label">敵アニマルの強さ</p>
+        <div class="choice-row small" id="choiceDiff">
+          <button type="button" class="choice-pill" data-value="easy">弱い</button>
+          <button type="button" class="choice-pill" data-value="normal">普通</button>
+          <button type="button" class="choice-pill" data-value="hard">強い</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="setup-page" data-page="3">
+      <h2 class="setup-title">🐾 相棒をえらぼう！</h2>
+      <p class="setup-sub">いっしょにたたかう相棒アニマルをえらんでね</p>
+      <div class="buddy-grid" id="setupBuddyGrid"></div>
+    </section>
+
+    <div class="setup-footer">
+      <button type="button" class="setup-back" id="setupBack">もどる</button>
+      <button type="button" class="setup-next" id="setupNext">次へ ▶</button>
+    </div>
   </div>
 </div>
 
