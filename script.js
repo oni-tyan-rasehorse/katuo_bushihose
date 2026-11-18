@@ -396,9 +396,12 @@
     buddy:'lion',
     soundOn:true,
     checkOwner:null,
+    moneyShown:false,
+    loseEffect:false,
     bossName:pickBossHorse()
   };
 
+  function isBoardFlipped(){ return state.mode==='cpu' && state.playerColor==='gote'; }
   function cpuColor(){ return state.playerColor==='sente' ? 'gote' : 'sente'; }
   function isCpuTurn(){ return state.mode==='cpu' && state.turn===cpuColor(); }
 
@@ -674,23 +677,192 @@
       });
     } catch(e){ /* ignore */ }
   }
+  // ---------- 負けたときの演出（少し暗転して雨が降る） ----------
+  let loseTimer = null;
+  function playRainSound(){
+    if(!state.soundOn) return;
+    const ctx = getAudioCtx();
+    if(!ctx) return;
+    try{
+      const now = ctx.currentTime;
+      // ざーっという雨音
+      const dur = 6;
+      const rain = ctx.createBufferSource();
+      rain.buffer = makeNoiseBuffer(ctx, dur);
+      const hp = ctx.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1800;
+      const lp = ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=7000;
+      const rg = ctx.createGain();
+      rg.gain.setValueAtTime(0.0001, now);
+      rg.gain.exponentialRampToValueAtTime(0.1, now+1.2);
+      rg.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+      rain.connect(hp); hp.connect(lp); lp.connect(rg); rg.connect(ctx.destination);
+      rain.start(now); rain.stop(now+dur);
+      // 下がっていく悲しい音
+      const o = ctx.createOscillator(); const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(330, now);
+      o.frequency.exponentialRampToValueAtTime(110, now+1.4);
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.25, now+0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, now+1.5);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(now); o.stop(now+1.6);
+    } catch(e){ /* ignore */ }
+  }
+  function startLoseEffect(){
+    stopLoseEffect(true); // 結果画面を遅らせるタイマーは消さない
+    document.getElementById('board').closest('.board-frame').classList.add('lose-dim');
+    const overlay = document.createElement('div');
+    overlay.className = 'lose-overlay';
+    document.body.appendChild(overlay);
+    const layer = document.createElement('div');
+    layer.className = 'rain-layer';
+    const rnd = (a,b)=>a+Math.random()*(b-a);
+    for(let i=0;i<150;i++){
+      const d = document.createElement('div');
+      d.className = 'raindrop';
+      d.style.left = rnd(-5,105)+'vw';
+      d.style.setProperty('--len', rnd(16,34)+'px');
+      d.style.setProperty('--dur', rnd(0.55,1.0)+'s');
+      d.style.setProperty('--delay', (-rnd(0,1.2))+'s');
+      d.style.setProperty('--drift', rnd(-170,-110)+'px');
+      d.style.opacity = rnd(0.35,0.85);
+      layer.appendChild(d);
+    }
+    document.body.appendChild(layer);
+    playRainSound();
+  }
+  function stopLoseEffect(keepTimer){
+    if(!keepTimer) clearTimeout(loseTimer);
+    document.querySelectorAll('.lose-overlay, .rain-layer').forEach(el=>el.remove());
+    const frame = document.querySelector('.board-frame');
+    if(frame) frame.classList.remove('lose-dim');
+  }
+
+  // 詰み判定：王手をかけられている側に、王手を外せる手が1つもなければ詰み
+  function isCheckmate(board, captured, owner){
+    if(!isInCheck(board, owner)) return false;
+    const moves = generateAllMoves(owner, board, captured);
+    for(const m of moves){
+      const r = applyMoveClone(board, captured, owner, m);
+      if(r.capturedPiece && r.capturedPiece.type==='K') return false;
+      if(!isInCheck(r.board, owner)) return false;
+    }
+    return true;
+  }
+
+  // ---------- 札束が舞い散る演出（最後の王手＝詰み／王を取って勝ったとき） ----------
+  function playMoneySound(){
+    if(!state.soundOn) return;
+    const ctx = getAudioCtx();
+    if(!ctx) return;
+    try{
+      const now = ctx.currentTime;
+      // チャリーンと上がっていくコインの音
+      [988, 1319, 1568, 1976, 2349, 2637].forEach((f,i)=>{
+        const t0 = now + i*0.07;
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.type = 'triangle';
+        o.frequency.setValueAtTime(f, t0);
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(0.22, t0+0.01);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0+0.55);
+        o.connect(g); g.connect(ctx.destination);
+        o.start(t0); o.stop(t0+0.6);
+      });
+      // 紙がひらひら舞うノイズ
+      const dur = 1.6;
+      const noise = ctx.createBufferSource();
+      noise.buffer = makeNoiseBuffer(ctx, dur);
+      const bp = ctx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=3200; bp.Q.value=0.7;
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.0001, now);
+      ng.gain.exponentialRampToValueAtTime(0.09, now+0.2);
+      ng.gain.exponentialRampToValueAtTime(0.0001, now+dur);
+      noise.connect(bp); bp.connect(ng); ng.connect(ctx.destination);
+      noise.start(now); noise.stop(now+dur);
+    } catch(e){ /* ignore */ }
+  }
+  function launchMoneyRain(){
+    const layer = document.createElement('div');
+    layer.className = 'money-layer';
+    const rnd = (a,b)=>a+Math.random()*(b-a);
+    const makeBundle = (wrapStyle)=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'bundle-wrap';
+      Object.entries(wrapStyle).forEach(([k,v])=>wrap.style.setProperty(k,v));
+      const b = document.createElement('div');
+      b.className = 'bundle';
+      b.style.setProperty('--tumble', rnd(0.8,1.8)+'s');
+      b.style.setProperty('--tx', (Math.random()<0.5?-1:1)*rnd(180,420)+'deg');
+      b.style.setProperty('--ty', (Math.random()<0.5?-1:1)*rnd(180,540)+'deg');
+      wrap.appendChild(b);
+      layer.appendChild(wrap);
+    };
+    // 上から降ってくる札束
+    for(let i=0;i<46;i++){
+      makeBundle({
+        'left': rnd(-2,100)+'vw',
+        '--w': rnd(40,72)+'px',
+        '--dur': rnd(2.4,4.4)+'s',
+        '--delay': rnd(0,1.4)+'s',
+        '--dx': rnd(-120,120)+'px',
+        'animation-name': 'moneyFall'
+      });
+    }
+    // 盤の中央から弾け飛ぶ札束
+    const board = document.getElementById('board').getBoundingClientRect();
+    const cx = board.left + board.width/2, cy = board.top + board.height/2;
+    for(let i=0;i<22;i++){
+      makeBundle({
+        'left': cx+'px', 'top': cy+'px',
+        '--w': rnd(44,78)+'px',
+        '--dur': rnd(2.2,3.6)+'s',
+        '--delay': rnd(0,0.25)+'s',
+        '--dx': rnd(-420,420)+'px',
+        '--up': rnd(120,360)+'px',
+        'animation-name': 'moneyBurst'
+      });
+    }
+    document.body.appendChild(layer);
+    playMoneySound();
+    setTimeout(()=>layer.remove(), 6500);
+  }
+
   function announceCheckIfAny(){
     if(state.gameOver) return;
     if(isInCheck(state.board, state.turn)){
       try{ showCheckBanner(); } catch(e){ /* 演出の失敗でゲームを止めない */ }
       try{ playCheckSound(); } catch(e){ /* 同上 */ }
+      // あなたが詰みの王手をかけたら、札束を降らせる
+      if(state.mode==='cpu' && state.turn===cpuColor() && !state.moneyShown){
+        try{
+          if(isCheckmate(state.board, state.captured, state.turn)){
+            state.moneyShown = true;
+            launchMoneyRain();
+          }
+        } catch(e){ /* 同上 */ }
+      }
     }
   }
 
   function render(){
     state.checkOwner = (!state.gameOver && isInCheck(state.board, state.turn)) ? state.turn : null;
+    document.body.classList.toggle('flipped', isBoardFlipped());
     renderBoard();
     renderMochigoma();
     renderPanels();
     renderStatus();
+    renderCommentary();
     if(state.gameOver && !state.resultShown){
       state.resultShown = true;
-      showResultModal();
+      if(state.loseEffect){
+        // 負けたときは、暗転と雨の演出を見せてから結果画面を出す
+        clearTimeout(loseTimer);
+        loseTimer = setTimeout(showResultModal, 3000);
+      } else {
+        showResultModal();
+      }
     }
   }
 
@@ -785,6 +957,85 @@
     document.getElementById('tag-gote').textContent = state.mode==='cpu' ? (cc==='gote'?`👑 ${state.bossName.name}`:`${buddyIcon} あなた`) : '';
   }
 
+  // ---------- 形勢コメント（相棒とボスが教えてくれる） ----------
+  // 駒の価値の差で形勢を判定する（あなたから見た点差）
+  function playerAdvantage(){
+    const score = evaluateScore(state.board, state.captured); // 先手が有利なほどプラス
+    return state.playerColor==='sente' ? score : -score;
+  }
+  function evalLabel(d){
+    if(d >= 14) return '勝勢';
+    if(d >= 7)  return '優勢';
+    if(d >= 3)  return 'やや優勢';
+    if(d > -3)  return '互角';
+    if(d > -7)  return 'やや劣勢';
+    if(d > -14) return '劣勢';
+    return '敗勢';
+  }
+  const BUDDY_LINES = {
+    '勝勢':['勝てそうだよ！このまま行こう！','もう少しで勝てるよ！'],
+    '優勢':['いい調子！優勢だよ！','リードしてるよ、その調子！'],
+    'やや優勢':['ちょっとリードしてるよ','いい感じ、このまま慎重にね'],
+    '互角':['互角だね。集中していこう！','まだわからないよ、じっくりね'],
+    'やや劣勢':['ちょっと押されてるね…','落ち着いて、まだ巻き返せるよ'],
+    '劣勢':['劣勢だよ…でもあきらめないで！','ピンチだけど、きみならできる！'],
+    '敗勢':['かなりピンチ！でも最後まで！','奇跡を信じよう…！'],
+    'check_player':['王手されてるよ！気をつけて！','王が危ない！守って！'],
+    'check_cpu':['王手！いいぞ！','王手だ！追い詰めよう！']
+  };
+  const BOSS_LINES = {
+    '勝勢':['ぐっ…ここまでか…','まさか、この俺が…！'],
+    '優勢':['くっ、やるな…！','なかなか手強いじゃないか'],
+    'やや優勢':['ほう、なかなかやるな','むむ…少しリードされたか'],
+    '互角':['ふん、互角か。面白い！','勝負はこれからだ'],
+    'やや劣勢':['まだまだこれからだ','俺のペースになってきたな'],
+    '劣勢':['ハハハ、余裕だな！','どうした、もう終わりか？'],
+    '敗勢':['勝負あったな！','観念するがいい！'],
+    'check_player':['王手だ！逃げられるかな？','ほら、王手だぞ！'],
+    'check_cpu':['うっ…王手か！','くそっ、王手をかけられた！']
+  };
+  let lastCommentKey = null, lastBuddyText = '', lastBossText = '';
+  function pickLine(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+  function renderCommentary(){
+    const bossEl = document.getElementById('cmBoss');
+    const evalBox = document.getElementById('cmEval');
+    const buddyEl = document.getElementById('cmBuddy');
+    if(state.mode!=='cpu' || !state.bossName || state.gameOver){
+      [bossEl, evalBox, buddyEl].forEach(el=>{ el.style.display = 'none'; });
+      return;
+    }
+    // ボスは相手側、相棒と形勢は自分側の持ち駒パネルの下に置く
+    const oppDock = document.getElementById('dock-' + cpuColor());
+    const myDock = document.getElementById('dock-' + state.playerColor);
+    if(bossEl.parentNode!==oppDock) oppDock.appendChild(bossEl);
+    if(evalBox.parentNode!==myDock) myDock.appendChild(evalBox);
+    if(buddyEl.parentNode!==myDock) myDock.appendChild(buddyEl);
+    [bossEl, evalBox, buddyEl].forEach(el=>{ el.style.display = ''; });
+    const d = playerAdvantage();
+    const label = evalLabel(d);
+    let key = label;
+    if(state.checkOwner){
+      key = (state.checkOwner===state.playerColor) ? 'check_player' : 'check_cpu';
+    }
+    if(key !== lastCommentKey){
+      lastCommentKey = key;
+      lastBuddyText = pickLine(BUDDY_LINES[key]);
+      lastBossText = pickLine(BOSS_LINES[key]);
+    }
+    const buddy = buddyById(state.buddy);
+    document.getElementById('cmBuddyAvatar').textContent = buddy.icon;
+    document.getElementById('cmBuddyName').textContent = buddy.name;
+    document.getElementById('cmBuddyText').textContent = lastBuddyText;
+    document.getElementById('cmBossName').textContent = state.bossName.name;
+    document.getElementById('cmBossText').textContent = lastBossText;
+    const evalEl = document.getElementById('cmEvalLabel');
+    evalEl.textContent = label;
+    evalEl.dataset.level = label;
+    const pct = Math.max(4, Math.min(96, 50 + d*2.5));
+    document.getElementById('cmBarFill').style.width = pct + '%';
+  }
+
   function renderStatus(){
     const el = document.getElementById('status');
     el.classList.remove('win','thinking');
@@ -828,8 +1079,12 @@
   function renderBoard(){
     const boardEl = document.getElementById('board');
     boardEl.innerHTML = '';
-    for(let r=0;r<9;r++){
-      for(let c=0;c<9;c++){
+    const flipped = isBoardFlipped();
+    for(let ri=0;ri<9;ri++){
+      for(let ci=0;ci<9;ci++){
+        // 後手を選んだときは盤を180度回して、自分の駒が下側に来るようにする
+        const r = flipped ? 8-ri : ri;
+        const c = flipped ? 8-ci : ci;
         const cell = document.createElement('div');
         cell.className='cell';
         cell.dataset.row=r; cell.dataset.col=c;
@@ -844,7 +1099,7 @@
         const piece = state.board[r][c];
         if(piece){
           const komaEl = document.createElement('div');
-          komaEl.className = 'koma ' + piece.owner + (piece.promoted?' promoted':'') + (piece.type==='P'?' piece-pawn':'') + (piece.type==='K'?(piece.owner==='sente'?' piece-lion':' piece-horse'):'') + (piece.type==='G'?' piece-bear':'') + (piece.type==='S'?' piece-wolf':'') + (piece.type==='K' && state.checkOwner===piece.owner ? ' in-check':'');
+          komaEl.className = 'koma ' + piece.owner + (piece.promoted?' promoted':'') + (piece.type==='P'?' piece-pawn':'') + (piece.type==='K'?(piece.owner==='sente'?' piece-lion':' piece-horse'):'') + (piece.type==='G'?' piece-bear':'') + (piece.type==='S'?' piece-wolf':'') + (piece.type==='B'?' piece-meat':'') + (piece.type==='R'?' piece-fish':'') + (piece.type==='N'?' piece-zebra':'') + (piece.type==='L'?' piece-giraffe':'') + (piece.type==='K' && state.checkOwner===piece.owner ? ' in-check':'');
           if(state.selected && state.selected.kind==='board' && state.selected.row===r && state.selected.col===c){
             komaEl.classList.add('selected');
           }
@@ -883,7 +1138,7 @@
           wrap.classList.add('selected');
         }
         const koma = document.createElement('div');
-        koma.className='koma '+owner+(type==='P'?' piece-pawn':'')+(type==='G'?' piece-bear':'')+(type==='S'?' piece-wolf':'');
+        koma.className='koma '+owner+(type==='P'?' piece-pawn':'')+(type==='G'?' piece-bear':'')+(type==='S'?' piece-wolf':'')+(type==='B'?' piece-meat':'')+(type==='R'?' piece-fish':'')+(type==='N'?' piece-zebra':'')+(type==='L'?' piece-giraffe':'');
         const body = document.createElement('div');
         body.className='body';
         const span=document.createElement('span');
@@ -980,10 +1235,20 @@
     }
     state.lastMove = {fromRow,fromCol,toRow,toCol};
     const won = finishTurnCheckWin(captured, mover);
+    if(won && state.mode==='cpu' && mover===cpuColor()) state.loseEffect = true;
     clearSelection();
     if(!won){ state.turn = mover==='sente' ? 'gote' : 'sente'; }
     render();
-    if(!won) announceCheckIfAny();
+    if(!won){
+      announceCheckIfAny();
+    } else if(state.mode==='cpu' && mover===state.playerColor && !state.moneyShown){
+      // 詰みを経ずに王を取って勝ったときも札束を降らせる
+      state.moneyShown = true;
+      try{ launchMoneyRain(); } catch(e){ /* 演出の失敗でゲームを止めない */ }
+    } else if(state.loseEffect){
+      // あなたの王を取られて負けたら、暗転して雨を降らせる
+      try{ startLoseEffect(); } catch(e){ /* 演出の失敗でゲームを止めない */ }
+    }
   }
 
   function applyDropDirect(type,row,col,owner){
@@ -1120,6 +1385,10 @@
     state.lastMove = null;
     state.thinking = false;
     state.resultShown = false;
+    lastCommentKey = null;
+    state.moneyShown = false;
+    state.loseEffect = false;
+    stopLoseEffect();
     state.bossName = state.mode==='cpu' ? pickBossHorse() : null;
     document.getElementById('resultModal').classList.remove('open');
     render();
@@ -1196,6 +1465,90 @@
     if(state.soundOn){ getAudioCtx(); }
   });
 
+  // ---------- はじめの流れ（ルール → 対戦設定 → 相棒 → ボス登場） ----------
+  const setupWiz = { step:1, mode:'cpu', color:'sente', diff:'normal' };
+
+  function markChoice(containerId, value){
+    document.querySelectorAll('#'+containerId+' [data-value]').forEach(btn=>{
+      btn.classList.toggle('selected', btn.dataset.value===value);
+    });
+  }
+  function renderSetupBuddyGrid(){
+    const grid = document.getElementById('setupBuddyGrid');
+    grid.innerHTML = '';
+    BUDDY_LIST.forEach(b=>{
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'buddy-card' + (state.buddy===b.id ? ' selected' : '');
+      const iconSpan = document.createElement('span');
+      iconSpan.className = 'buddy-icon'; iconSpan.textContent = b.icon;
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'buddy-name'; nameSpan.textContent = b.name;
+      card.appendChild(iconSpan); card.appendChild(nameSpan);
+      card.addEventListener('click', ()=>{
+        state.buddy = b.id;
+        renderBuddyBtn();
+        renderSetupBuddyGrid();
+      });
+      grid.appendChild(card);
+    });
+  }
+  function renderSetupStep(){
+    document.querySelectorAll('.setup-page').forEach(pg=>{
+      pg.classList.toggle('active', Number(pg.dataset.page)===setupWiz.step);
+    });
+    document.querySelectorAll('.setup-dot').forEach(dot=>{
+      const n = Number(dot.dataset.step);
+      dot.classList.toggle('active', n===setupWiz.step);
+      dot.classList.toggle('done', n<setupWiz.step);
+    });
+    document.getElementById('setupBack').disabled = setupWiz.step===1;
+    const next = document.getElementById('setupNext');
+    if(setupWiz.step<3){
+      next.textContent = '次へ ▶';
+    } else {
+      next.textContent = setupWiz.mode==='cpu' ? '👑 ボスに挑む！' : '⚔️ 対局開始！';
+    }
+    document.getElementById('setupCpuOptions').style.display = setupWiz.mode==='cpu' ? '' : 'none';
+    markChoice('choiceMode', setupWiz.mode);
+    markChoice('choiceColor', setupWiz.color);
+    markChoice('choiceDiff', setupWiz.diff);
+    if(setupWiz.step===3){ renderSetupBuddyGrid(); }
+  }
+  function openSetupWizard(){
+    setupWiz.step = 1;
+    setupWiz.mode = document.getElementById('modeSelect').value || 'cpu';
+    setupWiz.color = document.getElementById('colorSelect').value || 'sente';
+    setupWiz.diff = document.getElementById('difficultySelect').value || 'normal';
+    renderSetupStep();
+    document.getElementById('setupModal').classList.add('open');
+  }
+  function finishSetupWizard(){
+    document.getElementById('modeSelect').value = setupWiz.mode;
+    document.getElementById('colorSelect').value = setupWiz.color;
+    document.getElementById('difficultySelect').value = setupWiz.diff;
+    updateSettingsVisibility();
+    renderBuddyBtn();
+    document.getElementById('setupModal').classList.remove('open');
+    resetGame(); // CPU対戦ならここでボス登場演出が始まる
+  }
+  document.querySelectorAll('#choiceMode [data-value]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ setupWiz.mode = btn.dataset.value; renderSetupStep(); });
+  });
+  document.querySelectorAll('#choiceColor [data-value]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ setupWiz.color = btn.dataset.value; renderSetupStep(); });
+  });
+  document.querySelectorAll('#choiceDiff [data-value]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ setupWiz.diff = btn.dataset.value; renderSetupStep(); });
+  });
+  document.getElementById('setupBack').addEventListener('click', ()=>{
+    if(setupWiz.step>1){ setupWiz.step--; renderSetupStep(); }
+  });
+  document.getElementById('setupNext').addEventListener('click', ()=>{
+    if(setupWiz.step<3){ setupWiz.step++; renderSetupStep(); }
+    else { finishSetupWizard(); }
+  });
+
   ['pointerdown','click','keydown','touchstart'].forEach(evName=>{
     document.addEventListener(evName, getAudioCtx, {once:true, passive:true});
   });
@@ -1203,4 +1556,5 @@
   updateSettingsVisibility();
   renderBuddyBtn();
   render();
+  openSetupWizard();
 })();
