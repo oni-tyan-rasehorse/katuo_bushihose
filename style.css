@@ -1473,3 +1473,17 @@ body.flipped .koma.sente .body{ transform:rotate(180deg); }
   from{ transform:translate3d(0,0,0) rotate(12deg); }
   to{ transform:translate3d(var(--drift), calc(100vh + 90px), 0) rotate(12deg); }
 }
+/* ===== 出典表記（右下） ===== */
+.credit{
+  position:fixed;
+  right:8px;
+  bottom:6px;
+  z-index:1;
+  font-family:"M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", sans-serif;
+  font-size:10px;
+  line-height:1;
+  color:rgba(255,255,255,.85);
+  text-shadow:0 1px 2px rgba(0,0,0,.6);
+  pointer-events:none;   /* クリックを邪魔しない */
+  user-select:none;
+}
