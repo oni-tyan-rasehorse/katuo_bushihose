@@ -1487,3 +1487,22 @@ body.flipped .koma.sente .body{ transform:rotate(180deg); }
   pointer-events:none;   /* クリックを邪魔しない */
   user-select:none;
 }
+.credit{
+  width:100%;
+  text-align:center;
+  font-size:12px;
+  color:var(--paper);
+  background:rgba(0, 51, 102, 0.75);
+  border:2px solid var(--wood-dark);
+  border-radius:10px;
+  padding:8px 14px;
+  margin-top:4px;
+  letter-spacing:.03em;
+}
+.credit a{
+  color:var(--sun);
+  text-decoration:underline;
+}
+.credit a:hover{
+  opacity:.85;
+}
